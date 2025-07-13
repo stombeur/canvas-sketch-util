@@ -16,6 +16,7 @@ var DEFAULT_PIXELS_PER_INCH = 90;
 module.exports.createPath = createPath;
 function createPath (fn) {
   var path = d3.path();
+
   if (typeof fn === 'function') fn(path);
   path.lineTo = wrap(path.lineTo);
   path.quadraticCurveTo = wrap(path.quadraticCurveTo);
@@ -224,6 +225,19 @@ function renderGroups (inputs, opt) {
   ];
 }
 
+module.exports.renderGroupsWithText = renderGroupsWithText;
+function renderGroupsWithText (inputs, texts, opt) {
+  return [
+    // Export PNG as first layer
+    renderPathsAndTextOnCanvas(inputs.flat(), texts, opt),
+    // Export SVG for pen plotter as second layer
+    {
+      data: groupsToSVG(inputs, opt),
+      extension: '.svg'
+    }
+  ];
+}
+
 module.exports.renderPaths = renderPaths;
 function renderPaths (inputs, opt) {
   // Save layers
@@ -236,6 +250,71 @@ function renderPaths (inputs, opt) {
       extension: '.svg'
     }
   ];
+}
+
+function renderPathsAndTextOnCanvas (inputs, texts, opt) {
+  opt = opt || {};
+
+  var context = opt.context;
+  if (!context) throw new Error('Must specify "context" options');
+
+  var units = opt.units || 'px';
+
+  var width = opt.width;
+  var height = opt.height;
+  if (typeof width === 'undefined' || typeof height === 'undefined') {
+    throw new Error('Must specify "width" and "height" options');
+  }
+
+  // Choose a default line width based on a relatively fine-tip pen
+  var lineWidth = opt.lineWidth;
+  if (typeof lineWidth === 'undefined') {
+    // Convert to user units
+    lineWidth = convert(DEFAULT_PEN_THICKNESS, DEFAULT_PEN_THICKNESS_UNIT, units, {
+      roundPixel: false,
+      pixelsPerInch: DEFAULT_PIXELS_PER_INCH
+    });
+  }
+
+  // Clear canvas
+  context.clearRect(0, 0, width, height);
+
+  // Fill with white
+  context.fillStyle = opt.background || 'white';
+  context.fillRect(0, 0, width, height);
+
+  context.strokeStyle = opt.foreground || opt.strokeStyle || 'black';
+  context.lineWidth = lineWidth;
+  context.lineJoin = opt.lineJoin || 'miter';
+  context.lineCap = opt.lineCap || 'butt';
+
+  // Draw lines
+  eachPath(inputs, function (feature) {
+    context.beginPath();
+
+    if (typeof feature === 'string') {
+      // SVG string = drawSVGPath;
+      drawSVGPath(context, feature);
+    } else {
+      // list of points
+      feature.forEach(function (p) {
+        context.lineTo(p[0], p[1]);
+      });
+    }
+
+    context.stroke();
+  });
+
+  context.fillStyle = opt.background || 'black';
+
+  for (let i = 0; i < texts.length; i++) {
+    const el = texts[i];
+    context.font = el.fontsize + "px sans-serif";
+    context.textBaseline = "bottom";
+    context.fillText(" "+el.text, el.pos[0], el.pos[1]);  
+  }
+
+  return context.canvas;
 }
 
 function renderPathsOnCanvas (inputs, opt) {
